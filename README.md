@@ -81,7 +81,7 @@ Ta dùng bản headless (không có GUI) cho nhẹ Pi.
 pip install numpy opencv-python-headless opencv-contrib-python-headless
 ```
 
-## 3. CÀI ĐẶT MEDIAMTX (BẢN CHO PI/ARM64)
+## 3. CÀI ĐẶT MEDIAMTX (BẢN CHO PI/ARM64) (NẾU CLONE REPO NÀY THÌ CÓ THỂ BỎ QUA BƯỚC NÀY)
 Lưu ý: Bạn không thể copy file mediamtx từ PC sang vì PC là kiến trúc x86, còn Pi là ARM64. Phải tải bản mới.
 
 **Bước 3.1: Tải về**
