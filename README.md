@@ -2,7 +2,7 @@
 
 Vì Pi CM4 chạy kiến trúc ARM64 và được cài OS Ubuntu Server (không màn hình). Dưới đây là "Cẩm nang cài đặt SIYI WebRTC Streamer trên CM4" từ A-Z.
 
-##1. CẤU HÌNH MẠNG (QUAN TRỌNG NHẤT)##
+## 1. CẤU HÌNH MẠNG (QUAN TRỌNG NHẤT)
 
 Pi CM4 cần 2 đường mạng:
 
@@ -58,7 +58,7 @@ ip a
 
 để chắc chắn eth0 đã có IP .30 và wlan0 đã có IP Wifi.
 
-##2. CÀI ĐẶT MÔI TRƯỜNG##
+## 2. CÀI ĐẶT MÔI TRƯỜNG
 Do là bản Server rút gọn, ta cần cài thủ công các thư viện xử lý ảnh và video.
 
 Bước 2.1: Cập nhật hệ thống
@@ -81,7 +81,7 @@ Ta dùng bản headless (không có GUI) cho nhẹ Pi.
 pip install numpy opencv-python-headless opencv-contrib-python-headless
 ```
 
-##3. CÀI ĐẶT MEDIAMTX (BẢN CHO PI/ARM64)##
+## 3. CÀI ĐẶT MEDIAMTX (BẢN CHO PI/ARM64)
 Lưu ý: Bạn không thể copy file mediamtx từ PC sang vì PC là kiến trúc x86, còn Pi là ARM64. Phải tải bản mới.
 
 Bước 3.1: Tải về
@@ -166,7 +166,7 @@ http://<IP_cua_PI>:8889/my_camera/
 ```
 Đến đây đã kết nối xong, nếu chỉ để kết nối Pi và Cam thì đã hoàn thành.
 
-##4.Chạy toàn bộ hệ thống##
+## 4.Chạy toàn bộ hệ thống
 **4.1. Đảm bảo hệ thống ở trạng thái tốt nhất trước khi cất cánh**
 Chạy benchmark pre-flight
 ```bash
