@@ -1,8 +1,8 @@
-##pi_git_backup##
+# pi_git_backup
 
 Vì Pi CM4 chạy kiến trúc ARM64 và được cài OS Ubuntu Server (không màn hình). Dưới đây là "Cẩm nang cài đặt SIYI WebRTC Streamer trên CM4" từ A-Z.
 
-**1. CẤU HÌNH MẠNG (QUAN TRỌNG NHẤT)
+**1. CẤU HÌNH MẠNG (QUAN TRỌNG NHẤT)**
 Pi CM4 cần 2 đường mạng:
 
 Ethernet (eth0): IP Tĩnh để nói chuyện với Camera (192.168.168.x).
