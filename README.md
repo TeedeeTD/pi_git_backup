@@ -2,11 +2,14 @@
 
 Vì Pi CM4 chạy kiến trúc ARM64 và được cài OS Ubuntu Server (không màn hình). Dưới đây là "Cẩm nang cài đặt SIYI WebRTC Streamer trên CM4" từ A-Z.
 
-**1. CẤU HÌNH MẠNG (QUAN TRỌNG NHẤT)**
+##1. CẤU HÌNH MẠNG (QUAN TRỌNG NHẤT)
+
 Pi CM4 cần 2 đường mạng:
 
 Ethernet (eth0): IP Tĩnh để nói chuyện với Camera (192.168.168.x).
+
 Wifi (wlan0): IP để máy tính Ground Station kết nối vào xem.
+
 Bước 1.1: Kiểm tra tên card mạng
 ```bash
 ip link show
@@ -55,7 +58,7 @@ ip a
 
 để chắc chắn eth0 đã có IP .30 và wlan0 đã có IP Wifi.
 
-2. CÀI ĐẶT MÔI TRƯỜNG
+##2. CÀI ĐẶT MÔI TRƯỜNG
 Do là bản Server rút gọn, ta cần cài thủ công các thư viện xử lý ảnh và video.
 
 Bước 2.1: Cập nhật hệ thống
@@ -78,7 +81,7 @@ Ta dùng bản headless (không có GUI) cho nhẹ Pi.
 pip install numpy opencv-python-headless opencv-contrib-python-headless
 ```
 
-3. CÀI ĐẶT MEDIAMTX (BẢN CHO PI/ARM64)
+##3. CÀI ĐẶT MEDIAMTX (BẢN CHO PI/ARM64)
 Lưu ý: Bạn không thể copy file mediamtx từ PC sang vì PC là kiến trúc x86, còn Pi là ARM64. Phải tải bản mới.
 
 Bước 3.1: Tải về
@@ -126,7 +129,7 @@ gpu_mem=128
 start_x=1
 ```
 
-2. Load driver Video4Linux2 (V4L2):
+Load driver Video4Linux2 (V4L2):
 
 ```bash
 sudo nano /etc/modules
@@ -135,7 +138,7 @@ Thêm dòng này vào cuối file:
 
 bcm2835-v4l2
 ```
-3. Khởi động lại:
+Khởi động lại:
 
 ```bash
 sudo reboot
@@ -162,3 +165,45 @@ trên web
 http://<IP_cua_PI>:8889/my_camera/
 ```
 Đến đây đã kết nối xong, nếu chỉ để kết nối Pi và Cam thì đã hoàn thành.
+
+##4.Chạy toàn bộ hệ thống
+**4.1. Đảm bảo hệ thống ở trạng thái tốt nhất trước khi cất cánh**
+Chạy benchmark pre-flight
+```bash
+cd benchmark
+./ultimate_audit.py
+```
+Nếu thấy lỗi cần fix thì làm theo hướng dẫn
+
+**4.2. Khởi chạy cam Siyi A8**
+chạy mediamtx
+```bash
+cd mediamtx
+./mediamtx
+```
+
+**4.3. Chạy script detect Aruco**
+Mở 1 terminal khác
+```bash
+cd stream_cam
+```
+
+Nếu chỉ cần detect Aruco thì chạy
+```bash
+python3 main_pi_stream.py
+```
+
+Nếu cần cả thêm chức năng tracking thì chạy
+```bash
+cd stream_cam/tracking_gimbal
+python3 pi_tracking.py
+```
+
+xem hiển thị tại trình duyệt web
+```bash
+http://dia_chi_IP_cua_PI:8889/siyi_aruco/
+```
+Chạy xong tracking muốn cam về vị trí 0 thì chạy file
+```bash
+python3 reset_center.py
+```
