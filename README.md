@@ -10,13 +10,13 @@ Ethernet (eth0): IP Tĩnh để nói chuyện với Camera (192.168.168.x).
 
 Wifi (wlan0): IP để máy tính Ground Station kết nối vào xem.
 
-Bước 1.1: Kiểm tra tên card mạng
+**Bước 1.1: Kiểm tra tên card mạng**
 ```bash
 ip link show
 ```
 Ghi nhớ tên card: thường là eth0 và wlan0.
 
-Bước 1.2: Cấu hình Netplan
+**Bước 1.2: Cấu hình Netplan**
 Ubuntu Server dùng Netplan. Hãy sửa file cấu hình:
 
 ```bash
@@ -44,7 +44,7 @@ network:
   version: 2
 ```
 
-Bước 1.3: Áp dụng
+**Bước 1.3: Áp dụng**
 
 ```bash
 sudo netplan apply
@@ -61,20 +61,20 @@ ip a
 ## 2. CÀI ĐẶT MÔI TRƯỜNG
 Do là bản Server rút gọn, ta cần cài thủ công các thư viện xử lý ảnh và video.
 
-Bước 2.1: Cập nhật hệ thống
+**Bước 2.1: Cập nhật hệ thống**
 
 ```bash
 sudo apt update && sudo apt upgrade -y
 ```
 
-Bước 2.2: Cài FFmpeg, GStreamer và thư viện bổ trợ
+**Bước 2.2: Cài FFmpeg, GStreamer và thư viện bổ trợ**
 
 ```bash
 sudo apt install -y python3-pip ffmpeg libsm6 libxext6 libgl1-mesa-glx
 sudo apt install -y libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools
 ```
 
-Bước 2.3: Cài thư viện Python
+**Bước 2.3: Cài thư viện Python**
 Ta dùng bản headless (không có GUI) cho nhẹ Pi.
 
 ```bash
@@ -84,7 +84,7 @@ pip install numpy opencv-python-headless opencv-contrib-python-headless
 ## 3. CÀI ĐẶT MEDIAMTX (BẢN CHO PI/ARM64)
 Lưu ý: Bạn không thể copy file mediamtx từ PC sang vì PC là kiến trúc x86, còn Pi là ARM64. Phải tải bản mới.
 
-Bước 3.1: Tải về
+**Bước 3.1: Tải về**
 
 ```bash
 cd ~
@@ -94,7 +94,7 @@ mv mediamtx mediamtx_server
 rm mediamtx_v1.15.5_linux_arm64.tar.gz LICENSE
 ```
 
-Bước 3.2: Tạo file cấu hình mediamtx.yml
+**Bước 3.2: Tạo file cấu hình mediamtx.yml**
 ```bash
 nano mediamtx.yml
 ```
@@ -110,7 +110,7 @@ paths:
     sourceOnDemand: yes
 ```
 
-Bước 3.3. Cấu hình Hệ điều hành & Kích hoạt GPU (Quan trọng nhất)
+**Bước 3.3. Cấu hình Hệ điều hành & Kích hoạt GPU (Quan trọng nhất)**
 Ubuntu Server mặc định không bật các tính năng phần cứng của Pi.
 
 Sửa file cấu hình Boot:
@@ -153,7 +153,7 @@ ffmpeg -encoders | grep v4l2
 
 Kết quả phải có dòng: V....D h264_v4l2m2m
 
-Bước 3.4: Check cam
+**Bước 3.4: Check cam**
 Mở terminal
 
 ```bash
