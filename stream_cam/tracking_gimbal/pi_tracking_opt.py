@@ -15,7 +15,7 @@ import numpy as np
 # ==========================================
 # --- CẤU HÌNH TỐI ƯU HIỆU NĂNG ---
 # ==========================================
-DETECT_SCALE = 0.7  # Thu nhỏ 1/2 để detect nhanh
+DETECT_SCALE = 0.7  # Thu nhỏ để detect nhanh
 SKIP_FRAME = 1      # Detect 1 frame, nghỉ 1 frame
 
 # --- CẤU HÌNH HỆ THỐNG ---
@@ -179,8 +179,24 @@ class StreamPusher:
         self.process.stdin.close()
         self.process.wait()
 
+# --- GPS THREAD (BỔ SUNG TỪ FILE GỐC) ---
+running_global = True 
+current_lat, current_lon = 0.0, 0.0
+def gps_thread():
+    global current_lat, current_lon
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try: sock.bind(("0.0.0.0", GPS_PORT)); sock.settimeout(1.0)
+    except: return
+    while running_global:
+        try:
+            data, _ = sock.recvfrom(1024)
+            _, _, lat, lon, _ = struct.unpack('qi3d', data)
+            current_lat, current_lon = lat, lon
+        except: pass
+
 # --- MAIN PROGRAM ---
 def main():
+    global running_global
     print(f">>> PI CM4 OPTIMIZED TRACKING V2.1 (Scale={DETECT_SCALE}, Skip={SKIP_FRAME})...")
     
     cam = CameraStream(CAMERA_URL)
@@ -205,6 +221,12 @@ def main():
     
     detector = aruco.ArucoDetector(aruco_dict, parameters) if hasattr(aruco, "ArucoDetector") else None
 
+    # --- CSV Logging Init (BỔ SUNG) ---
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_file = open(f"pi_track_opt_log_{timestamp_str}.csv", mode='w', newline='')
+    csv_writer = csv.writer(csv_file)
+    csv_writer.writerow(["Timestamp", "Algo_ms", "FPS", "Dist_m", "ErrX", "ErrY", "Yaw_Cmd", "Pitch_Cmd"])
+
     frame_count = 0
     start_time_fps = time.perf_counter()
     fps_val = 0
@@ -214,6 +236,11 @@ def main():
     last_ids = None
     last_yaw_cmd = 0
     last_pitch_cmd = 0
+    
+    # Thêm biến lưu lỗi để ghi log
+    err_x_log = 0
+    err_y_log = 0
+    
     is_tracking = False
 
     print(">>> SYSTEM LIVE!")
@@ -244,9 +271,7 @@ def main():
             
             # 3. Scale ngược (Đã sửa lỗi Tuple)
             if ids is not None and len(ids) > 0:
-                # FIX LỖI TẠI ĐÂY: Duyệt qua tuple và nhân vô hướng
                 corners = tuple(c / DETECT_SCALE for c in corners)
-                
                 last_corners = corners
                 last_ids = ids
                 is_tracking = True
@@ -260,15 +285,14 @@ def main():
         # --- LOGIC ĐIỀU KHIỂN ---
         yaw_cmd, pitch_cmd = 0, 0
         dist_val = 0.0
+        err_x, err_y = 0, 0
         
         if is_tracking and last_corners is not None:
             try:
                 # Tính Pose
                 rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(last_corners, MARKER_SIZE, CAMERA_MATRIX, DIST_COEFFS)
                 dist_val = tvecs[0][0][2]
-                
                 aruco.drawDetectedMarkers(frame, last_corners, last_ids)
-                # cv2.drawFrameAxes(frame, CAMERA_MATRIX, DIST_COEFFS, rvecs[0], tvecs[0], 0.05)
             except: pass
 
             # PID
@@ -278,6 +302,10 @@ def main():
             
             err_x = cx - center_screen[0]
             err_y = cy - center_screen[1]
+            
+            # Lưu để log
+            err_x_log = err_x
+            err_y_log = err_y
 
             if abs(err_x) > DEADZONE: yaw_cmd = int(err_x * KP_YAW)
             if abs(err_y) > DEADZONE: pitch_cmd = int(-err_y * KP_PITCH)
@@ -289,6 +317,8 @@ def main():
         else:
             last_yaw_cmd = 0
             last_pitch_cmd = 0
+            err_x_log = 0
+            err_y_log = 0
 
         if TRACKING_ACTIVE:
             gimbal.rotate(last_yaw_cmd, last_pitch_cmd)
@@ -296,8 +326,8 @@ def main():
         t_algo_end = time.perf_counter()
         algo_ms = (t_algo_end - t_algo_start) * 1000
         
+        # OSD
         cv2.drawMarker(frame, center_screen, (0, 255, 0), cv2.MARKER_CROSS, 30, 2)
-        
         status_text = "DETECT" if should_detect else "SKIP"
         cv2.putText(frame, f"FPS: {int(fps_val)} | {status_text}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         cv2.putText(frame, f"Algo: {algo_ms:.1f}ms", (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
@@ -307,6 +337,7 @@ def main():
 
         pusher.write(frame)
 
+        # Loop Timing
         elapsed = time.perf_counter() - loop_start
         wait = FRAME_TIME_MS - elapsed
         if wait > 0: time.sleep(wait)
@@ -315,10 +346,20 @@ def main():
             now = time.perf_counter()
             fps_val = 15 / (now - start_time_fps)
             start_time_fps = now
+            
+            # --- Ghi Log CSV (BỔ SUNG) ---
+            try:
+                ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                csv_writer.writerow([ts, f"{algo_ms:.1f}", f"{fps_val:.1f}", f"{dist_val:.2f}", err_x_log, err_y_log, last_yaw_cmd, last_pitch_cmd])
+            except: pass
 
+    running_global = False
     cam.stop()
     pusher.stop()
     gimbal.stop()
+    csv_file.close()
 
 if __name__ == "__main__":
+    t = threading.Thread(target=gps_thread, daemon=True)
+    t.start()
     main()
