@@ -179,7 +179,7 @@ class StreamPusher:
         self.process.stdin.close()
         self.process.wait()
 
-# --- GPS THREAD (BỔ SUNG TỪ FILE GỐC) ---
+# --- GPS THREAD ---
 running_global = True 
 current_lat, current_lon = 0.0, 0.0
 def gps_thread():
@@ -197,7 +197,7 @@ def gps_thread():
 # --- MAIN PROGRAM ---
 def main():
     global running_global
-    print(f">>> PI CM4 OPTIMIZED TRACKING V2.1 (Scale={DETECT_SCALE}, Skip={SKIP_FRAME})...")
+    print(f">>> PI CM4 OPTIMIZED TRACKING V3.0 (Sync Timing)...")
     
     cam = CameraStream(CAMERA_URL)
     time.sleep(2.0)
@@ -221,73 +221,75 @@ def main():
     
     detector = aruco.ArucoDetector(aruco_dict, parameters) if hasattr(aruco, "ArucoDetector") else None
 
-    # --- CSV Logging Init (BỔ SUNG) ---
+    # --- CSV Logging ---
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_file = open(f"pi_track_opt_log_{timestamp_str}.csv", mode='w', newline='')
     csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(["Timestamp", "Algo_ms", "FPS", "Dist_m", "ErrX", "ErrY", "Yaw_Cmd", "Pitch_Cmd"])
+    csv_writer.writerow(["Timestamp", "Algo_ms", "Loop_ms", "FPS", "Dist_m", "ErrX", "ErrY", "Yaw_Cmd", "Pitch_Cmd"])
 
+    # --- BIẾN ĐO THỜI GIAN ---
     frame_count = 0
     start_time_fps = time.perf_counter()
     fps_val = 0
-    center_screen = (STREAM_W // 2, STREAM_H // 2)
+    last_loop_duration = 0 # Loop_ms hiển thị
     
+    center_screen = (STREAM_W // 2, STREAM_H // 2)
     last_corners = None
     last_ids = None
     last_yaw_cmd = 0
     last_pitch_cmd = 0
     
-    # Thêm biến lưu lỗi để ghi log
-    err_x_log = 0
-    err_y_log = 0
+    # Biến nội bộ logic tối ưu
+    detect_count = 0 
     
-    is_tracking = False
-
     print(">>> SYSTEM LIVE!")
 
     while True:
-        loop_start = time.perf_counter()
-        frame_count += 1
+        # 1. Bắt đầu đếm giờ Loop bằng perf_counter (Chính xác cao)
+        loop_start_counter = time.perf_counter()
 
         ret, frame = cam.read()
         if not ret or frame is None:
-            time.sleep(0.001); continue
+            time.sleep(0.001)
+            continue
 
-        t_algo_start = time.perf_counter()
+        # 2. XỬ LÝ (Algo)
+        t_start_algo = time.perf_counter()
         
-        # --- LOGIC TỐI ƯU ---
-        should_detect = (frame_count % (SKIP_FRAME + 1) == 0)
+        # --- LOGIC TỐI ƯU (SCALE + SKIP) ---
+        detect_count += 1
+        should_detect = (detect_count % (SKIP_FRAME + 1) == 0)
 
         if should_detect:
-            # 1. Thu nhỏ
+            # Thu nhỏ
             SMALL_W = int(STREAM_W * DETECT_SCALE)
             SMALL_H = int(STREAM_H * DETECT_SCALE)
             small_frame = cv2.resize(frame, (SMALL_W, SMALL_H), interpolation=cv2.INTER_NEAREST)
             gray = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
             
-            # 2. Detect
+            # Detect
             if detector: corners, ids, _ = detector.detectMarkers(gray)
             else: corners, ids, _ = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
             
-            # 3. Scale ngược (Đã sửa lỗi Tuple)
+            # Scale ngược
             if ids is not None and len(ids) > 0:
                 corners = tuple(c / DETECT_SCALE for c in corners)
                 last_corners = corners
                 last_ids = ids
-                is_tracking = True
             else:
                 last_ids = None
-                is_tracking = False
         else:
+            # Dùng lại kết quả cũ
             corners = last_corners
             ids = last_ids
 
-        # --- LOGIC ĐIỀU KHIỂN ---
-        yaw_cmd, pitch_cmd = 0, 0
+        # --- LOGIC ĐIỀU KHIỂN & 3D POSE ---
+        is_tracking = False
         dist_val = 0.0
         err_x, err_y = 0, 0
         
-        if is_tracking and last_corners is not None:
+        if last_ids is not None and last_corners is not None:
+            is_tracking = True
             try:
                 # Tính Pose
                 rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(last_corners, MARKER_SIZE, CAMERA_MATRIX, DIST_COEFFS)
@@ -303,54 +305,62 @@ def main():
             err_x = cx - center_screen[0]
             err_y = cy - center_screen[1]
             
-            # Lưu để log
-            err_x_log = err_x
-            err_y_log = err_y
-
-            if abs(err_x) > DEADZONE: yaw_cmd = int(err_x * KP_YAW)
-            if abs(err_y) > DEADZONE: pitch_cmd = int(-err_y * KP_PITCH)
+            if abs(err_x) > DEADZONE: last_yaw_cmd = int(err_x * KP_YAW)
+            else: last_yaw_cmd = 0
             
-            last_yaw_cmd = yaw_cmd
-            last_pitch_cmd = pitch_cmd
+            if abs(err_y) > DEADZONE: last_pitch_cmd = int(-err_y * KP_PITCH)
+            else: last_pitch_cmd = 0
             
             cv2.line(frame, center_screen, (cx, cy), (0, 0, 255), 2)
         else:
+            is_tracking = False
             last_yaw_cmd = 0
             last_pitch_cmd = 0
-            err_x_log = 0
-            err_y_log = 0
 
+        # Gửi lệnh Gimbal
         if TRACKING_ACTIVE:
             gimbal.rotate(last_yaw_cmd, last_pitch_cmd)
 
-        t_algo_end = time.perf_counter()
-        algo_ms = (t_algo_end - t_algo_start) * 1000
-        
-        # OSD
+        t_end_algo = time.perf_counter()
+        algo_ms = (t_end_algo - t_start_algo) * 1000
+
+        # --- OSD ---
         cv2.drawMarker(frame, center_screen, (0, 255, 0), cv2.MARKER_CROSS, 30, 2)
-        status_text = "DETECT" if should_detect else "SKIP"
-        cv2.putText(frame, f"FPS: {int(fps_val)} | {status_text}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(frame, f"Algo: {algo_ms:.1f}ms", (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        
+        status_text = "DET" if should_detect else "SKP"
+        # Dòng 1: FPS
+        cv2.putText(frame, f"FPS: {int(fps_val)} | {status_text}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        # Dòng 2: Algo time
+        cv2.putText(frame, f"Algo: {algo_ms:.1f}ms", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        # Dòng 3: Loop time (Thời gian xử lý thực tế của vòng trước)
+        cv2.putText(frame, f"Loop: {last_loop_duration:.1f}ms", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
         if is_tracking:
-            cv2.putText(frame, f"CMD: Y{last_yaw_cmd} P{last_pitch_cmd}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            cv2.putText(frame, f"CMD: Y{last_yaw_cmd} P{last_pitch_cmd}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
         pusher.write(frame)
 
-        # Loop Timing
-        elapsed = time.perf_counter() - loop_start
-        wait = FRAME_TIME_MS - elapsed
-        if wait > 0: time.sleep(wait)
+        # 4. TÍNH TOÁN LOOP TIME & NGỦ
+        loop_end_counter = time.perf_counter()
+        elapsed_sec = loop_end_counter - loop_start_counter
+        last_loop_duration = elapsed_sec * 1000 # Lưu lại để hiển thị vòng sau
         
-        if frame_count % 15 == 0:
+        wait_time = FRAME_TIME_MS - elapsed_sec
+        if wait_time > 0:
+            time.sleep(wait_time)
+        
+        # 5. TÍNH FPS (TRUNG BÌNH MỖI 10 FRAME)
+        frame_count += 1
+        if frame_count >= 10:
             now = time.perf_counter()
-            fps_val = 15 / (now - start_time_fps)
+            fps_val = frame_count / (now - start_time_fps)
             start_time_fps = now
+            frame_count = 0
             
-            # --- Ghi Log CSV (BỔ SUNG) ---
+            # Log CSV
             try:
                 ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                csv_writer.writerow([ts, f"{algo_ms:.1f}", f"{fps_val:.1f}", f"{dist_val:.2f}", err_x_log, err_y_log, last_yaw_cmd, last_pitch_cmd])
+                csv_writer.writerow([ts, f"{algo_ms:.2f}", f"{last_loop_duration:.2f}", f"{fps_val:.2f}", f"{dist_val:.2f}", err_x, err_y, last_yaw_cmd, last_pitch_cmd])
             except: pass
 
     running_global = False
