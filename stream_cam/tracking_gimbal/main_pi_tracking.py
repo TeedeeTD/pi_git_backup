@@ -11,6 +11,7 @@ import csv
 from datetime import datetime
 import queue
 import numpy as np
+import math # [MỚI] Cần để tính góc Euler
 
 # ==========================================
 # --- CẤU HÌNH TỐI ƯU HIỆU NĂNG ---
@@ -24,7 +25,7 @@ CAMERA_URL = "rtsp://127.0.0.1:8554/my_camera"
 
 GPS_PORT = 5555
 STREAM_W, STREAM_H = 1280, 720 
-FIXED_FPS = 30   
+FIXED_FPS = 25   
 FRAME_TIME_MS = 1.0 / FIXED_FPS 
 
 # --- CẤU HÌNH TRACKING (GIMBAL PID) ---
@@ -49,6 +50,33 @@ DIST_COEFFS = np.array([
 ])
 
 MARKER_SIZE = 0.099 # Mét
+
+# --- HÀM CHUYỂN ĐỔI MATIX -> EULER ANGLES (ROLL, PITCH, YAW) ---
+def isRotationMatrix(R):
+    Rt = np.transpose(R)
+    shouldBeIdentity = np.dot(Rt, R)
+    I = np.identity(3, dtype=R.dtype)
+    n = np.linalg.norm(I - shouldBeIdentity)
+    return n < 1e-6
+
+def rotationMatrixToEulerAngles(R):
+    # Tính toán góc Euler từ ma trận quay
+    # Kết quả trả về: [Roll (X), Pitch (Y), Yaw (Z)] đơn vị Radian
+    assert(isRotationMatrix(R))
+    
+    sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
+    singular = sy < 1e-6
+
+    if not singular:
+        x = math.atan2(R[2, 1], R[2, 2])
+        y = math.atan2(-R[2, 0], sy)
+        z = math.atan2(R[1, 0], R[0, 0])
+    else:
+        x = math.atan2(-R[1, 2], R[1, 1])
+        y = math.atan2(-R[2, 0], sy)
+        z = 0
+
+    return np.array([x, y, z])
 
 # --- FFMPEG OUTPUT COMMAND ---
 def get_ffmpeg_command(width, height, fps):
@@ -197,7 +225,7 @@ def gps_thread():
 # --- MAIN PROGRAM ---
 def main():
     global running_global
-    print(f">>> PI CM4 OPTIMIZED TRACKING V3.0 (Sync Timing)...")
+    print(f">>> PI CM4 OPTIMIZED TRACKING V4.0 (6-DOF Pose + Timing)...")
     
     cam = CameraStream(CAMERA_URL)
     time.sleep(2.0)
@@ -221,17 +249,22 @@ def main():
     
     detector = aruco.ArucoDetector(aruco_dict, parameters) if hasattr(aruco, "ArucoDetector") else None
 
-    # --- CSV Logging ---
+    # --- CSV Logging (Đã thêm X, Y, Z, R, P, Y) ---
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_file = open(f"pi_track_opt_log_{timestamp_str}.csv", mode='w', newline='')
+    csv_file = open(f"pi_track_pose_log_{timestamp_str}.csv", mode='w', newline='')
     csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(["Timestamp", "Algo_ms", "Loop_ms", "FPS", "Dist_m", "ErrX", "ErrY", "Yaw_Cmd", "Pitch_Cmd"])
+    csv_writer.writerow([
+        "Timestamp", "Algo_ms", "Loop_ms", "FPS", 
+        "Pos_X", "Pos_Y", "Pos_Z",          # Vị trí (Mét)
+        "Roll", "Pitch", "Yaw",             # Góc xoay (Độ)
+        "Yaw_Cmd", "Pitch_Cmd"              # Lệnh Gimbal
+    ])
 
     # --- BIẾN ĐO THỜI GIAN ---
     frame_count = 0
     start_time_fps = time.perf_counter()
     fps_val = 0
-    last_loop_duration = 0 # Loop_ms hiển thị
+    last_loop_duration = 0 
     
     center_screen = (STREAM_W // 2, STREAM_H // 2)
     last_corners = None
@@ -239,13 +272,11 @@ def main():
     last_yaw_cmd = 0
     last_pitch_cmd = 0
     
-    # Biến nội bộ logic tối ưu
     detect_count = 0 
     
-    print(">>> SYSTEM LIVE!")
+    print(">>> SYSTEM LIVE! (Saving Full Pose Data)")
 
     while True:
-        # 1. Bắt đầu đếm giờ Loop bằng perf_counter (Chính xác cao)
         loop_start_counter = time.perf_counter()
 
         ret, frame = cam.read()
@@ -261,17 +292,14 @@ def main():
         should_detect = (detect_count % (SKIP_FRAME + 1) == 0)
 
         if should_detect:
-            # Thu nhỏ
             SMALL_W = int(STREAM_W * DETECT_SCALE)
             SMALL_H = int(STREAM_H * DETECT_SCALE)
             small_frame = cv2.resize(frame, (SMALL_W, SMALL_H), interpolation=cv2.INTER_NEAREST)
             gray = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
             
-            # Detect
             if detector: corners, ids, _ = detector.detectMarkers(gray)
             else: corners, ids, _ = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
             
-            # Scale ngược
             if ids is not None and len(ids) > 0:
                 corners = tuple(c / DETECT_SCALE for c in corners)
                 last_corners = corners
@@ -279,25 +307,50 @@ def main():
             else:
                 last_ids = None
         else:
-            # Dùng lại kết quả cũ
             corners = last_corners
             ids = last_ids
 
-        # --- LOGIC ĐIỀU KHIỂN & 3D POSE ---
+        # --- LOGIC ĐIỀU KHIỂN & 6-DOF POSE ---
         is_tracking = False
-        dist_val = 0.0
-        err_x, err_y = 0, 0
+        
+        # Khởi tạo giá trị mặc định cho Pose
+        pos_x, pos_y, pos_z = 0.0, 0.0, 0.0
+        roll, pitch, yaw = 0.0, 0.0, 0.0
         
         if last_ids is not None and last_corners is not None:
             is_tracking = True
             try:
-                # Tính Pose
+                # 1. Tính Pose (Rotation Vec & Translation Vec)
                 rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(last_corners, MARKER_SIZE, CAMERA_MATRIX, DIST_COEFFS)
-                dist_val = tvecs[0][0][2]
-                aruco.drawDetectedMarkers(frame, last_corners, last_ids)
-            except: pass
+                
+                # --- [MỚI] TÁCH DỮ LIỆU X, Y, Z ---
+                # tvecs[0][0] chứa [x, y, z]
+                pos_x = tvecs[0][0][0]
+                pos_y = tvecs[0][0][1]
+                pos_z = tvecs[0][0][2]
+                
+                # --- [MỚI] TÍNH ROLL, PITCH, YAW ---
+                # Chuyển đổi vector quay (rvec) sang ma trận quay (Rotation Matrix)
+                rmat, _ = cv2.Rodrigues(rvecs[0])
+                
+                # Tính góc Euler từ ma trận quay (Đơn vị: Radian)
+                euler_angles = rotationMatrixToEulerAngles(rmat)
+                
+                # Đổi sang độ (Degrees) cho dễ đọc
+                roll_deg  = math.degrees(euler_angles[0])
+                pitch_deg = math.degrees(euler_angles[1])
+                yaw_deg   = math.degrees(euler_angles[2])
+                
+                roll, pitch, yaw = roll_deg, pitch_deg, yaw_deg
 
-            # PID
+                # Vẽ trục toạ độ
+                cv2.drawFrameAxes(frame, CAMERA_MATRIX, DIST_COEFFS, rvecs[0], tvecs[0], 0.05)
+                aruco.drawDetectedMarkers(frame, last_corners, last_ids)
+                
+            except Exception as e: 
+                pass
+
+            # PID Tracking
             c = last_corners[0][0]
             cx = int((c[0][0] + c[2][0]) / 2)
             cy = int((c[0][1] + c[2][1]) / 2)
@@ -328,28 +381,31 @@ def main():
         cv2.drawMarker(frame, center_screen, (0, 255, 0), cv2.MARKER_CROSS, 30, 2)
         
         status_text = "DET" if should_detect else "SKP"
-        # Dòng 1: FPS
         cv2.putText(frame, f"FPS: {int(fps_val)} | {status_text}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        # Dòng 2: Algo time
         cv2.putText(frame, f"Algo: {algo_ms:.1f}ms", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        # Dòng 3: Loop time (Thời gian xử lý thực tế của vòng trước)
         cv2.putText(frame, f"Loop: {last_loop_duration:.1f}ms", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
         if is_tracking:
-            cv2.putText(frame, f"CMD: Y{last_yaw_cmd} P{last_pitch_cmd}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            # Hiển thị toạ độ XYZ lên màn hình
+            info_pos = f"X:{pos_x:.2f} Y:{pos_y:.2f} Z:{pos_z:.2f}"
+            info_rot = f"R:{roll:.1f} P:{pitch:.1f} Y:{yaw:.1f}"
+            
+            cv2.putText(frame, info_pos, (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            cv2.putText(frame, info_rot, (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            cv2.putText(frame, f"CMD: Y{last_yaw_cmd} P{last_pitch_cmd}", (10, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
         pusher.write(frame)
 
         # 4. TÍNH TOÁN LOOP TIME & NGỦ
         loop_end_counter = time.perf_counter()
         elapsed_sec = loop_end_counter - loop_start_counter
-        last_loop_duration = elapsed_sec * 1000 # Lưu lại để hiển thị vòng sau
+        last_loop_duration = elapsed_sec * 1000 
         
         wait_time = FRAME_TIME_MS - elapsed_sec
         if wait_time > 0:
             time.sleep(wait_time)
         
-        # 5. TÍNH FPS (TRUNG BÌNH MỖI 10 FRAME)
+        # 5. TÍNH FPS & LOGGING
         frame_count += 1
         if frame_count >= 10:
             now = time.perf_counter()
@@ -357,10 +413,15 @@ def main():
             start_time_fps = now
             frame_count = 0
             
-            # Log CSV
+            # Ghi Log CSV
             try:
                 ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                csv_writer.writerow([ts, f"{algo_ms:.2f}", f"{last_loop_duration:.2f}", f"{fps_val:.2f}", f"{dist_val:.2f}", err_x, err_y, last_yaw_cmd, last_pitch_cmd])
+                csv_writer.writerow([
+                    ts, f"{algo_ms:.2f}", f"{last_loop_duration:.2f}", f"{fps_val:.2f}", 
+                    f"{pos_x:.3f}", f"{pos_y:.3f}", f"{pos_z:.3f}", 
+                    f"{roll:.2f}", f"{pitch:.2f}", f"{yaw:.2f}", 
+                    last_yaw_cmd, last_pitch_cmd
+                ])
             except: pass
 
     running_global = False
