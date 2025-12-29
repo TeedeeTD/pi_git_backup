@@ -16,7 +16,7 @@
 #include <sstream>
 
 // --- CẤU HÌNH ---
-#define FIXED_FPS 20       
+#define FIXED_FPS 30       
 #define FRAME_TIME_MS (1000.0 / FIXED_FPS)
 #define RTSP_PUSH_URL "rtsp://localhost:8554/siyi_aruco"
 #define CAMERA_URL "rtsp://127.0.0.1:8554/my_camera"
@@ -28,8 +28,8 @@
 #define SKIP_FRAME 0       
 #define SIYI_IP "192.168.168.14"
 #define SIYI_PORT 37260
-#define KP_YAW 0.12
-#define KP_PITCH 0.12
+#define KP_YAW 0.15
+#define KP_PITCH 0.15
 #define DEADZONE 15
 
 using namespace std;
