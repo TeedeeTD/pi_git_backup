@@ -1,0 +1,3 @@
+/home/pi/cpp_tracking/CMakeFiles/pi_track.dir
+/home/pi/cpp_tracking/CMakeFiles/edit_cache.dir
+/home/pi/cpp_tracking/CMakeFiles/rebuild_cache.dir
