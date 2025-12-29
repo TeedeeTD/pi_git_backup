@@ -15,7 +15,7 @@ import numpy as np
 # ==========================================
 # --- CẤU HÌNH TỐI ƯU HIỆU NĂNG ---
 # ==========================================
-DETECT_SCALE = 0.5  # Thu nhỏ 1/2 để detect nhanh
+DETECT_SCALE = 0.7  # Thu nhỏ 1/2 để detect nhanh
 SKIP_FRAME = 1      # Detect 1 frame, nghỉ 1 frame
 
 # --- CẤU HÌNH HỆ THỐNG ---
@@ -34,7 +34,7 @@ TRACKING_ACTIVE = True
 
 # PID 
 KP_YAW   = 0.15   
-KP_PITCH = 0.15   
+KP_PITCH = 0.25   
 DEADZONE = 15     
 
 # --- CẤU HÌNH CAMERA MATRIX ---
@@ -48,7 +48,7 @@ DIST_COEFFS = np.array([
     [-0.0764, 0.0742, -0.0013, 0.0019, -0.0176]
 ])
 
-MARKER_SIZE = 0.142 # Mét
+MARKER_SIZE = 0.099 # Mét
 
 # --- FFMPEG OUTPUT COMMAND ---
 def get_ffmpeg_command(width, height, fps):
@@ -195,13 +195,13 @@ def main():
     print(f">>> Gimbal Connected: {SIYI_IP}")
 
     try:
-        aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_1000)
+        aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_50)
         parameters = aruco.DetectorParameters_create()
-        parameters.adaptiveThreshWinSizeStep = 20 
+        parameters.adaptiveThreshWinSizeStep = 10 
     except:
-        aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_1000)
+        aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_6X6_50)
         parameters = aruco.DetectorParameters()
-        parameters.adaptiveThreshWinSizeStep = 20
+        parameters.adaptiveThreshWinSizeStep = 10
     
     detector = aruco.ArucoDetector(aruco_dict, parameters) if hasattr(aruco, "ArucoDetector") else None
 
@@ -233,7 +233,9 @@ def main():
 
         if should_detect:
             # 1. Thu nhỏ
-            small_frame = cv2.resize(frame, None, fx=DETECT_SCALE, fy=DETECT_SCALE, interpolation=cv2.INTER_NEAREST)
+            SMALL_W = int(STREAM_W * DETECT_SCALE)
+            SMALL_H = int(STREAM_H * DETECT_SCALE)
+            small_frame = cv2.resize(frame, (SMALL_W, SMALL_H), interpolation=cv2.INTER_NEAREST)
             gray = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
             
             # 2. Detect
