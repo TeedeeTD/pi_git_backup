@@ -135,32 +135,64 @@ class SiyiGimbal:
         except: pass
     def stop(self): self.rotate(0, 0)
 
-# --- CLASS CAMERA STREAM (FIXED GSTREAMER + BUFFERLESS) ---
+# --- CLASS CAMERA STREAM (GSTREAMER MULTI-TRY) ---
 class CameraStream:
     def __init__(self, src):
-        # 1. Thử GStreamer với 'decodebin' (Tự động chọn codec tốt nhất trên Pi)
-        pipeline = (
-            f"rtspsrc location={src} latency=0 ! "
-            "rtph264depay ! h264parse ! decodebin ! "  # Dùng decodebin thay cho avdec_h264
-            "videoconvert ! appsink sync=false drop=true max-buffers=1"
-        )
-        
-        self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-        self.mode = "GSTREAMER"
-
-        if not self.cap.isOpened():
-            print("⚠️ GStreamer failed again! Switching to Threaded Bufferless Mode...")
-            # 2. Fallback: Standard API nhưng ép BufferSize = 1
-            self.cap = cv2.VideoCapture(src)
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) 
-            self.mode = "THREADED_BUFFERLESS"
-
+        self.src = src
+        self.cap = None
         self.ret = False
         self.frame = None
         self.running = True
-        self.lock = threading.Lock()
+        self.mode = "NONE"
         
-        # Chạy thread đọc ảnh liên tục (Xả buffer)
+        # Danh sách các Pipeline để thử (Ưu tiên Software trước vì ổn định)
+        pipelines = [
+            # 1. Software Decoding (Ổn định nhất trên mọi hệ điều hành)
+            (f"rtspsrc location={src} latency=0 ! "
+             "rtph264depay ! h264parse ! avdec_h264 ! "
+             "videoconvert ! video/x-raw,format=BGR ! appsink sync=false drop=true max-buffers=1"),
+             
+            # 2. Hardware Decoding (Raspberry Pi V4L2) - Nhanh nhưng kén driver
+            (f"rtspsrc location={src} latency=0 ! "
+             "rtph264depay ! h264parse ! v4l2h264dec capture-io-mode=4 ! "
+             "videoconvert ! video/x-raw,format=BGR ! appsink sync=false drop=true max-buffers=1"),
+             
+            # 3. Auto Decoding (Hên xui)
+            (f"rtspsrc location={src} latency=0 ! "
+             "rtph264depay ! h264parse ! decodebin ! "
+             "videoconvert ! video/x-raw,format=BGR ! appsink sync=false drop=true max-buffers=1")
+        ]
+
+        # Vòng lặp thử từng Pipeline
+        for i, pipe in enumerate(pipelines):
+            print(f">>> [Camera] Trying GStreamer Pipeline #{i+1}...")
+            cap = cv2.VideoCapture(pipe, cv2.CAP_GSTREAMER)
+            if cap.isOpened():
+                # Đọc thử 1 frame để chắc chắn nó chạy
+                ret, _ = cap.read()
+                if ret:
+                    self.cap = cap
+                    self.mode = f"GSTREAMER_PIPE_{i+1}"
+                    print(f"✅ GStreamer Success with Pipeline #{i+1}")
+                    break
+                else:
+                    cap.release()
+            else:
+                print(f"❌ Pipeline #{i+1} failed.")
+
+        # Nếu GStreamer tạch hết -> Fallback về Threaded Bufferless
+        if self.cap is None:
+            print("⚠️ All GStreamer pipelines failed! Switching to Standard Threaded Mode...")
+            self.cap = cv2.VideoCapture(src)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self.mode = "THREADED_BUFFERLESS"
+
+        if not self.cap.isOpened():
+            print("❌ FATAL: Cannot open camera source!")
+            self.running = False
+            return
+
+        self.lock = threading.Lock()
         self.t = threading.Thread(target=self.update, args=(), daemon=True)
         self.t.start()
 
@@ -172,19 +204,17 @@ class CameraStream:
                     self.ret = ret
                     self.frame = frame
             else:
-                # Nếu mất kết nối, thử lại nhanh
-                time.sleep(0.005)
+                time.sleep(0.005) # Ngủ ngắn để tránh spam CPU khi mất tín hiệu
 
     def read(self):
         with self.lock:
-            # Trả về frame mới nhất từ thread
             return self.ret, self.frame.copy() if self.frame is not None else None
 
     def stop(self):
         self.running = False
         self.t.join()
         self.cap.release()
-
+        
 class StreamPusher:
     def __init__(self, cmd, w, h):
         self.process = subprocess.Popen(cmd, stdin=subprocess.PIPE)
