@@ -48,13 +48,12 @@ DIST_COEFFS = np.array([
     [-0.0764, 0.0742, -0.0013, 0.0019, -0.0176]
 ], dtype=np.float32)
 
-MARKER_SIZE = 0.1   # Mét
+MARKER_SIZE = 0.1 # Mét
 
 # =========================================================
+# --- HÀM TÍNH TOÁN POSE (FIX SHAPE LỖI) ---
+# =========================================================
 def my_estimatePoseSingleMarkers(corners, marker_size, mtx, dist):
-    '''
-    Sử dụng cv2.solvePnP và reshape lại kết quả
-    '''
     marker_points = np.array([
         [-marker_size / 2, marker_size / 2, 0],
         [marker_size / 2, marker_size / 2, 0],
@@ -66,11 +65,8 @@ def my_estimatePoseSingleMarkers(corners, marker_size, mtx, dist):
     tvecs = []
     
     for c in corners:
-        # solvePnP trả về rvec, tvec có shape (3, 1)
         _, r, t = cv2.solvePnP(marker_points, c, mtx, dist, False, cv2.SOLVEPNP_IPPE_SQUARE)
-        
-        # [FIX] Reshape từ (3, 1) thành (1, 3) để giống format cũ
-        # Giúp truy cập tvecs[0][0][1] không bị lỗi index
+        # Reshape về (1, 3) để khớp với code cũ
         rvecs.append(r.reshape(1, 3))
         tvecs.append(t.reshape(1, 3))
         
@@ -106,7 +102,7 @@ def get_ffmpeg_command(width, height, fps):
         '-f', 'rtsp', RTSP_PUSH_URL
     ]
 
-# --- CLASSES ---
+# --- CLASS SIYI GIMBAL ---
 class SiyiGimbal:
     def __init__(self, ip, port):
         self.ip = ip; self.port = port
@@ -139,26 +135,32 @@ class SiyiGimbal:
         except: pass
     def stop(self): self.rotate(0, 0)
 
-# --- CAMERA STREAM (GSTREAMER + FALLBACK) ---
+# --- CLASS CAMERA STREAM (FIXED GSTREAMER + BUFFERLESS) ---
 class CameraStream:
     def __init__(self, src):
-        # GStreamer pipeline
+        # 1. Thử GStreamer với 'decodebin' (Tự động chọn codec tốt nhất trên Pi)
         pipeline = (
             f"rtspsrc location={src} latency=0 ! "
-            "rtph264depay ! h264parse ! avdec_h264 ! "
+            "rtph264depay ! h264parse ! decodebin ! "  # Dùng decodebin thay cho avdec_h264
             "videoconvert ! appsink sync=false drop=true max-buffers=1"
         )
-        self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         
+        self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        self.mode = "GSTREAMER"
+
         if not self.cap.isOpened():
-            print("⚠️ GStreamer failed, fallback to Standard...")
+            print("⚠️ GStreamer failed again! Switching to Threaded Bufferless Mode...")
+            # 2. Fallback: Standard API nhưng ép BufferSize = 1
             self.cap = cv2.VideoCapture(src)
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) 
+            self.mode = "THREADED_BUFFERLESS"
 
         self.ret = False
         self.frame = None
         self.running = True
         self.lock = threading.Lock()
+        
+        # Chạy thread đọc ảnh liên tục (Xả buffer)
         self.t = threading.Thread(target=self.update, args=(), daemon=True)
         self.t.start()
 
@@ -170,10 +172,12 @@ class CameraStream:
                     self.ret = ret
                     self.frame = frame
             else:
-                time.sleep(0.001)
+                # Nếu mất kết nối, thử lại nhanh
+                time.sleep(0.005)
 
     def read(self):
         with self.lock:
+            # Trả về frame mới nhất từ thread
             return self.ret, self.frame.copy() if self.frame is not None else None
 
     def stop(self):
@@ -218,12 +222,17 @@ def gps_thread():
 # --- MAIN ---
 def main():
     global running_global
-    print(f">>> PI TRACKING VIP V2 (Fix Shape 3x1 -> 1x3)...")
+    print(f">>> PI TRACKING VIP V3 (GStreamer Fix + Pose Shape Fix)...")
     
     # 1. Khởi tạo Camera
     cam = CameraStream(CAMERA_URL)
+    
+    # Chờ warm-up
+    print("Waiting for camera stream...")
     time.sleep(2.0)
+    
     if not cam.ret: print("❌ Camera not ready!"); cam.stop(); return
+    print(f"✅ Camera Active Mode: {cam.mode}")
     
     pusher = StreamPusher(get_ffmpeg_command(STREAM_W, STREAM_H, FIXED_FPS), STREAM_W, STREAM_H)
     gimbal = SiyiGimbal(SIYI_IP, SIYI_PORT)
@@ -242,7 +251,7 @@ def main():
 
     # Log CSV
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_file = open(f"track_vip_log_{timestamp_str}.csv", mode='w', newline='')
+    csv_file = open(f"track_vip_v3_log_{timestamp_str}.csv", mode='w', newline='')
     csv_writer = csv.writer(csv_file)
     csv_writer.writerow(["Timestamp", "Algo_ms", "Loop_ms", "FPS", "Pos_X", "Pos_Y", "Pos_Z", "Roll", "Pitch", "Yaw", "Yaw_Cmd", "Pitch_Cmd"])
 
@@ -255,8 +264,11 @@ def main():
 
     while True:
         loop_start_counter = time.perf_counter()
+        
+        # 1. Đọc ảnh (Tức thì từ Thread)
         ret, frame = cam.read()
-        if not ret or frame is None: time.sleep(0.001); continue
+        if not ret or frame is None:
+            time.sleep(0.001); continue
 
         t_start_algo = time.perf_counter()
         
@@ -287,24 +299,19 @@ def main():
         if last_ids is not None and last_corners is not None:
             is_tracking = True
             try:
-                # [QUAN TRỌNG] Dùng hàm thay thế my_estimatePoseSingleMarkers
+                # Dùng hàm thay thế (đã sửa shape)
                 rvecs, tvecs = my_estimatePoseSingleMarkers(last_corners, MARKER_SIZE, CAMERA_MATRIX, DIST_COEFFS)
                 
-                # Sau khi reshape, tvecs[0] có shape (1, 3)
-                # tvecs[0][0] = [x, y, z]
                 pos_x = tvecs[0][0][0]; pos_y = tvecs[0][0][1]; pos_z = tvecs[0][0][2]
                 
-                # Tính góc
                 rmat, _ = cv2.Rodrigues(rvecs[0])
                 euler_angles = rotationMatrixToEulerAngles(rmat)
                 roll, pitch, yaw = [math.degrees(x) for x in euler_angles]
 
-                # Vẽ OSD
                 cv2.drawFrameAxes(frame, CAMERA_MATRIX, DIST_COEFFS, rvecs[0], tvecs[0], 0.05)
                 aruco.drawDetectedMarkers(frame, last_corners, last_ids)
                 
             except Exception as e: 
-                # In lỗi nếu có (debug)
                 if frame_count % 60 == 0: print(f"⚠️ Pose Error: {e}")
 
             # PID Tracking
