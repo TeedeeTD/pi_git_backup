@@ -25,7 +25,7 @@ CAMERA_URL = "rtsp://127.0.0.1:8554/my_camera"
 
 GPS_PORT = 5555
 STREAM_W, STREAM_H = 1280, 720 
-FIXED_FPS = 31   
+FIXED_FPS = 30   
 FRAME_TIME_MS = 1.0 / FIXED_FPS 
 
 # --- CẤU HÌNH TRACKING (GIMBAL PID) ---
@@ -48,9 +48,38 @@ DIST_COEFFS = np.array([
     [-0.0764, 0.0742, -0.0013, 0.0019, -0.0176]
 ], dtype=np.float32)
 
-MARKER_SIZE = 0.099 # Mét
+MARKER_SIZE = 0.1   # Mét
 
-# --- HÀM HỖ TRỢ ---
+# =========================================================
+# --- [QUAN TRỌNG] HÀM THAY THẾ (ĐÃ SỬA LỖI SHAPE) ---
+# =========================================================
+def my_estimatePoseSingleMarkers(corners, marker_size, mtx, dist):
+    '''
+    Hàm này thay thế cho aruco.estimatePoseSingleMarkers
+    Sử dụng cv2.solvePnP và reshape lại kết quả để khớp với code cũ.
+    '''
+    marker_points = np.array([
+        [-marker_size / 2, marker_size / 2, 0],
+        [marker_size / 2, marker_size / 2, 0],
+        [marker_size / 2, -marker_size / 2, 0],
+        [-marker_size / 2, -marker_size / 2, 0]
+    ], dtype=np.float32)
+
+    rvecs = []
+    tvecs = []
+    
+    for c in corners:
+        # solvePnP trả về rvec, tvec có shape (3, 1)
+        _, r, t = cv2.solvePnP(marker_points, c, mtx, dist, False, cv2.SOLVEPNP_IPPE_SQUARE)
+        
+        # [FIX] Reshape từ (3, 1) thành (1, 3) để giống format cũ
+        # Giúp truy cập tvecs[0][0][1] không bị lỗi index
+        rvecs.append(r.reshape(1, 3))
+        tvecs.append(t.reshape(1, 3))
+        
+    return rvecs, tvecs
+
+# --- CÁC HÀM HỖ TRỢ KHÁC ---
 def isRotationMatrix(R):
     Rt = np.transpose(R)
     shouldBeIdentity = np.dot(Rt, R)
@@ -113,10 +142,10 @@ class SiyiGimbal:
         except: pass
     def stop(self): self.rotate(0, 0)
 
-# --- CAMERA STREAM (GSTREAMER VERSION - LOW LATENCY) ---
+# --- CAMERA STREAM (GSTREAMER + FALLBACK) ---
 class CameraStream:
     def __init__(self, src):
-        # Pipeline GStreamer tối ưu độ trễ
+        # GStreamer pipeline
         pipeline = (
             f"rtspsrc location={src} latency=0 ! "
             "rtph264depay ! h264parse ! avdec_h264 ! "
@@ -192,9 +221,9 @@ def gps_thread():
 # --- MAIN ---
 def main():
     global running_global
-    print(f">>> PI TRACKING FINAL (GStreamer + Float32 Fix)...")
+    print(f">>> PI TRACKING VIP V2 (Fix Shape 3x1 -> 1x3)...")
     
-    # 1. Khởi tạo Camera với GStreamer
+    # 1. Khởi tạo Camera
     cam = CameraStream(CAMERA_URL)
     time.sleep(2.0)
     if not cam.ret: print("❌ Camera not ready!"); cam.stop(); return
@@ -211,11 +240,12 @@ def main():
         aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_6X6_50)
         parameters = aruco.DetectorParameters()
         parameters.adaptiveThreshWinSizeStep = 10
+    
     detector = aruco.ArucoDetector(aruco_dict, parameters) if hasattr(aruco, "ArucoDetector") else None
 
     # Log CSV
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_file = open(f"track_gstreamer_log_{timestamp_str}.csv", mode='w', newline='')
+    csv_file = open(f"track_vip_log_{timestamp_str}.csv", mode='w', newline='')
     csv_writer = csv.writer(csv_file)
     csv_writer.writerow(["Timestamp", "Algo_ms", "Loop_ms", "FPS", "Pos_X", "Pos_Y", "Pos_Z", "Roll", "Pitch", "Yaw", "Yaw_Cmd", "Pitch_Cmd"])
 
@@ -246,7 +276,7 @@ def main():
             else: corners, ids, _ = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
             
             if ids is not None and len(ids) > 0:
-                # [FIX QUAN TRỌNG NHẤT] Ép kiểu float32
+                # Ép kiểu float32 cho solvePnP
                 corners = tuple((c / DETECT_SCALE).astype(np.float32) for c in corners)
                 last_corners = corners; last_ids = ids
             else: last_ids = None
@@ -260,8 +290,11 @@ def main():
         if last_ids is not None and last_corners is not None:
             is_tracking = True
             try:
-                # Tính Pose
-                rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(last_corners, MARKER_SIZE, CAMERA_MATRIX, DIST_COEFFS)
+                # [QUAN TRỌNG] Dùng hàm thay thế my_estimatePoseSingleMarkers
+                rvecs, tvecs = my_estimatePoseSingleMarkers(last_corners, MARKER_SIZE, CAMERA_MATRIX, DIST_COEFFS)
+                
+                # Sau khi reshape, tvecs[0] có shape (1, 3)
+                # tvecs[0][0] = [x, y, z]
                 pos_x = tvecs[0][0][0]; pos_y = tvecs[0][0][1]; pos_z = tvecs[0][0][2]
                 
                 # Tính góc
@@ -275,7 +308,7 @@ def main():
                 
             except Exception as e: 
                 # In lỗi nếu có (debug)
-                if frame_count % 30 == 0: print(f"⚠️ Pose Error: {e}")
+                if frame_count % 60 == 0: print(f"⚠️ Pose Error: {e}")
 
             # PID Tracking
             c = last_corners[0][0]
