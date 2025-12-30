@@ -51,12 +51,9 @@ DIST_COEFFS = np.array([
 MARKER_SIZE = 0.1   # Mét
 
 # =========================================================
-# --- [QUAN TRỌNG] HÀM THAY THẾ (ĐÃ SỬA LỖI SHAPE) ---
-# =========================================================
 def my_estimatePoseSingleMarkers(corners, marker_size, mtx, dist):
     '''
-    Hàm này thay thế cho aruco.estimatePoseSingleMarkers
-    Sử dụng cv2.solvePnP và reshape lại kết quả để khớp với code cũ.
+    Sử dụng cv2.solvePnP và reshape lại kết quả
     '''
     marker_points = np.array([
         [-marker_size / 2, marker_size / 2, 0],
