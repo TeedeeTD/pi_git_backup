@@ -207,11 +207,13 @@ python3 main_pi_track_gstreamer.py
 Lưu ý: nếu có lỗi khi khởi động Gstreamer thì fix theo hướng dẫn này: https://docs.google.com/document/d/1u6yJoEQWYQTLvss0lLVeXJZB86vE3RezJP8_CyGLQ0M/edit?usp=sharing
 
 **Việc dùng GStreamer sẽ giảm độ trễ khi truyền tin.**
+
 Giảm độ trễ (Latency): Tham số latency=0 giúp ép video phát ngay lập tức, không chờ buffer. Đây là "vũ khí" mạnh nhất của GStreamer.
 
 Giải mã phần cứng (Hardware Decoding): Nó có thể gọi trực tiếp các driver phần cứng của Pi để giải mã video H.264 mà không làm nóng CPU.
 
-Xem hiển thị tại trình duyệt web
+
+**Xem hiển thị tại trình duyệt web**
 ```bash
 http://dia_chi_IP_cua_PI:8889/siyi_aruco/
 ```
