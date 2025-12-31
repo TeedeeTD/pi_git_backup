@@ -188,18 +188,26 @@ Mở 1 terminal khác
 cd stream_cam
 ```
 
-Nếu chỉ cần detect Aruco thì chạy
+4.3.1. Nếu chỉ cần detect Aruco thì chạy
 ```bash
 python3 main_pi_stream.py
 ```
 
-Nếu cần cả thêm chức năng tracking thì chạy
+4.3.2. Nếu cần cả thêm chức năng tracking thì chạy
 ```bash
 cd stream_cam/tracking_gimbal
 python3 pi_tracking.py
 ```
 
-xem hiển thị tại trình duyệt web
+4.3.3. Nếu cần 1 chức năng đầy đủ
+```bash
+cd stream_cam/tracking_gimbal
+python3 main_pi_track_gstreamer.py
+```
+Lưu ý: nếu có lỗi khi khởi động Gstreamer thì fix theo hướng dẫn này: https://docs.google.com/document/d/1u6yJoEQWYQTLvss0lLVeXJZB86vE3RezJP8_CyGLQ0M/edit?usp=sharing
+Việc dùng GStreamer sẽ giảm độ trễ khi truyền tin.
+
+Xem hiển thị tại trình duyệt web
 ```bash
 http://dia_chi_IP_cua_PI:8889/siyi_aruco/
 ```
