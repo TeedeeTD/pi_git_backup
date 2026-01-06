@@ -192,8 +192,8 @@ class FFmpegStreamer:
             '-pix_fmt', 'yuv420p',  
             '-g', '30',             
             '-preset', 'ultrafast', 
-            '-rtsp_transport', 'udp',
             '-tune', 'zerolatency', 
+            '-rtsp_transport', 'udp'
             '-f', 'rtsp', push_url  
         ]
         

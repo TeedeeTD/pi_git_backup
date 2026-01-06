@@ -193,6 +193,8 @@ class FFmpegStreamer:
             '-g', '30',             
             '-preset', 'ultrafast', 
             '-tune', 'zerolatency', 
+            '-rtsp_transport', 'udp',
+            
             '-f', 'rtsp', push_url  
         ]
         
