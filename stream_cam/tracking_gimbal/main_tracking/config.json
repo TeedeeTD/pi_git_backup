@@ -1,6 +1,6 @@
 {
     "system": {
-        "detect_scale": 0.7,
+        "detect_scale": 1.0,
         "skip_frame": 1,
         "input_width": 1280,
         "input_height": 720,
