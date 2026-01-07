@@ -199,11 +199,24 @@ cd stream_cam/tracking_gimbal
 python3 pi_tracking.py
 ```
 
-4.3.3. Nếu cần 1 chức năng đầy đủ
+4.3.3. Nếu cần 1 chức năng tracking đầy đủ tối ưu
 ```bash
-cd stream_cam/tracking_gimbal
-python3 main_pi_track_gstreamer.py
+cd stream_cam/tracking_gimbal/main_tracking
+python3 mode_tracking.py
 ```
+Trong chương trình này, Pose là lấy theo Cam
+
+4.3.4. Nếu cần 1 chức năng landing đầy đủ tối ưu
+```bash
+cd stream_cam/tracking_gimbal/main_tracking
+python3 mode_landing.py
+```
+Trong chương trình này, Pose đã lấy theo hệ trục của UAV
+
+Trong 2 chương trình 2 mục 4.3.3 và 4.3.4 đang để mặc định cho cam hướng xuống đất (góc -90 độ)
+
+Muốn thay đổi góc này thì sửa thông số trong **gimbal.set_angle(0,-90)**
+
 Lưu ý: nếu có lỗi khi khởi động Gstreamer thì fix theo hướng dẫn này: https://docs.google.com/document/d/1u6yJoEQWYQTLvss0lLVeXJZB86vE3RezJP8_CyGLQ0M/edit?usp=sharing
 
 **Việc dùng GStreamer sẽ giảm độ trễ khi truyền tin.**
