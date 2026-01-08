@@ -1,2 +1,7 @@
 2026-01-07 14:58:26,841 - WARNING - GimbalListener - Gimbal Recv Error: [Errno 9] Bad file descriptor
 2026-01-07 15:28:58,908 - WARNING - GimbalListener - Gimbal Recv Error: [Errno 9] Bad file descriptor
+2026-01-08 15:16:30,177 - CRITICAL - MainThread - Failed to open GStreamer Writer! Check pipeline string.
+2026-01-08 15:19:22,299 - CRITICAL - MainThread - Failed to open GStreamer Writer! Check pipeline string.
+2026-01-08 15:31:07,152 - CRITICAL - MainThread - Failed to open GStreamer Pipeline Writer!
+2026-01-08 15:31:56,354 - CRITICAL - MainThread - Failed to open GStreamer Pipeline Writer!
+2026-01-08 15:34:13,078 - CRITICAL - MainThread - Failed to open GStreamer Pipeline Writer! Check pipeline syntax.
