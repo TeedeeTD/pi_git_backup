@@ -209,7 +209,7 @@ Trong chương trình này, Pose là lấy theo Cam
 4.3.4. Nếu cần 1 chức năng landing đầy đủ tối ưu
 ```bash
 cd stream_cam/tracking_gimbal/main_tracking
-python3 main_mode_landing.py
+python3 main_mode_landing_full.py
 ```
 Trong chương trình này, Pose đã lấy theo hệ trục của UAV
 
