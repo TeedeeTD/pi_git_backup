@@ -92,7 +92,7 @@ class CSVDataLogger(threading.Thread):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.filename = f"{prefix}_{timestamp}.csv"
         self.header = [
-            "Timestamp", "Frame_ID", "B3_Infer_ms", "C3_Algo_ms", "Loop_ms", 
+            "Timestamp", "Frame_ID", "B3_Infer_ms", "C3_Algo_ms", "C4_Loop_ms", 
             "FPS_Inst", "D1_Detect", "Cam_X", "Cam_Y", "Cam_Z", 
             "Cam_Roll", "Cam_Pitch", "Cam_Yaw"
         ]
