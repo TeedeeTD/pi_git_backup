@@ -2,8 +2,7 @@
     "system": {
         "hardware_profile": "pi4", 
         "ffmpeg_codec": "auto",
-        "detect_scale":
-,
+        "detect_scale": 0.7,
         "skip_frame": 1,
         "input_width": 1280,
         "input_height": 720,

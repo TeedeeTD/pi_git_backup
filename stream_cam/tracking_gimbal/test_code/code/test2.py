@@ -210,6 +210,7 @@ class GStreamerCamera:
             decoder_pipeline = (
                 "rtspsrc location={} latency=0 ! "
                 "rtph264depay ! h264parse ! "
+	#	"v4l2h264dec capture-io-mode=4 ! "
                 "avdec_h264 ! "
                 "queue max-size-buffers=1 leaky=downstream ! "
                 "videoconvert ! video/x-raw, format=(string)BGR ! "
