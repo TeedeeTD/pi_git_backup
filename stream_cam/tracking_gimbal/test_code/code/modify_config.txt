@@ -1,0 +1,2 @@
+"ffmpeg_codec": "libx264"     # Mặc định an toàn cho tất cả phần cứng
+"ffmpeg_codec": "h264_v4l2m2m"         ### dành riêng cho Pi4, Pi5 check lại nha
