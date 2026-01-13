@@ -1,13 +1,14 @@
 {
     "system": {
+        "hardware_profile": "pi4", 
+        "ffmpeg_codec": "auto",
         "detect_scale": 0.7,
         "skip_frame": 1,
         "input_width": 1280,
         "input_height": 720,
         "stream_scale": 0.5,
         "target_fps": 30,
-        "gps_port": 5555,
-        "ffmpeg_codec": "h264_v4l2m2m"
+        "gps_port": 5555
     },
     "connection": {
         "rtsp_push_url": "rtsp://localhost:8554/siyi_aruco",
