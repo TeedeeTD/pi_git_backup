@@ -1,0 +1,90 @@
+================================================================
+TÀI LIỆU HƯỚNG DẪN CẤU HÌNH (CONFIG.JSON) - DRONE LANDING SYSTEM
+================================================================
+
+A. NHÓM SYSTEM (HỆ THỐNG XỬ LÝ ẢNH & PHẦN CỨNG)
+----------------------------------------------------------------
+1. "hardware_profile"
+   - Ý nghĩa: Khai báo loại phần cứng đang chạy để Code tự động chọn Pipeline đọc Camera tối ưu.
+   - Giá trị hợp lệ: "pi4", "pi5", "jetson_orin", "cpu".
+   - MẸO KHẮC PHỤC LỖI (Cho Raspberry Pi 4):
+     Nên đặt là "pi5". Việc này ép hệ thống dùng CPU để giải mã đầu vào (Input), 
+     giúp loại bỏ hoàn toàn lỗi "Too old frames" và hiện tượng xám hình, 
+     đổi lại CPU sẽ tăng nhẹ khoảng 10-15%.
+
+2. "ffmpeg_codec"
+   - Ý nghĩa: Chọn bộ mã hóa (Encoder) để nén video gửi về mặt đất (Output).
+   - Giá trị "h264_v4l2m2m": Dùng phần cứng Raspberry Pi. Rất nhẹ, tiết kiệm CPU. (Khuyên dùng cho Pi 4).
+   - Giá trị "libx264": Dùng CPU. Tương thích mọi máy nhưng rất nặng. (Dùng cho PC/Jetson/Pi 5).
+   - Giá trị "auto": Tự động chọn theo hardware_profile.
+
+3. "detect_scale" (Mặc định: 0.7)
+   - Ý nghĩa: Tỷ lệ thu nhỏ ảnh trước khi tìm Marker.
+   - Tăng lên 1.0: Detect xa hơn, chính xác hơn, nhưng giảm FPS. (Dùng khi hạ cánh thấp <3m).
+   - Giảm xuống 0.5: Tăng vọt FPS, nhưng chỉ nhìn được gần. (Dùng khi bay tìm kiếm cao >10m).
+
+4. "skip_frame" (Mặc định: 1)
+   - Ý nghĩa: Số frame bỏ qua không xử lý giữa 2 lần detect.
+   - Giá trị 0: Xử lý tất cả các frame. CPU rất nóng, độ chính xác cao nhất.
+   - Giá trị 1: Xử lý 1 bỏ 1 (Detect 15Hz trên Cam 30Hz). Cân bằng tốt nhất giữa nhiệt độ và độ mượt.
+   - Giá trị 2+: Tiết kiệm pin tối đa, nhưng phản ứng chậm.
+
+5. "input_width" / "input_height" (1280x720)
+   - Ý nghĩa: Độ phân giải gốc yêu cầu từ Camera.
+   - Lưu ý: Giảm xuống 640x480 sẽ giảm độ trễ (Latency) nhưng làm giảm tầm nhìn xa.
+
+6. "stream_scale" (Mặc định: 0.5)
+   - Ý nghĩa: Tỷ lệ resize ảnh luồng Video gửi về trạm mặt đất.
+   - 0.5 nghĩa là gửi ảnh 640x360. Giúp giảm băng thông Wifi, giảm độ trễ truyền hình ảnh.
+
+7. "target_fps" (Mặc định: 30)
+   - Ý nghĩa: Giới hạn tốc độ vòng lặp để tránh chiếm dụng 100% CPU không cần thiết.
+
+================================================================
+B. NHÓM CONNECTION (KẾT NỐI MẠNG)
+================================================================
+1. "rtsp_push_url"
+   - Địa chỉ Server (MediaMTX) để đẩy luồng video đã xử lý lên.
+   - Thường là: "rtsp://localhost:8554/tên_luồng"
+
+2. "camera_source"
+   - Nguồn video đầu vào.
+   - Nếu dùng IP Camera/SIYI: "rtsp://192.168.x.x:8554/..."
+   - Nếu dùng USB Camera: Thay bằng số 0 hoặc "/dev/video0".
+
+3. "siyi_ip" / "siyi_port"
+   - Địa chỉ IP và Port UDP của Camera SIYI để gửi lệnh điều khiển Gimbal.
+
+================================================================
+C. NHÓM TRACKING (THUẬT TOÁN BÁM ĐUỔI PID)
+================================================================
+1. "kp_yaw" (Độ nhạy xoay ngang)
+   - Tăng: Gimbal phản ứng nhanh, quay gắt. Quá cao sẽ gây rung lắc (Oscillation).
+   - Giảm: Gimbal quay từ từ, mượt mà. Quá thấp sẽ đuổi không kịp Marker.
+
+2. "kp_pitch" (Độ nhạy gật đầu)
+   - Tương tự như kp_yaw nhưng áp dụng cho trục lên/xuống.
+
+3. "deadzone" (Vùng chết - Đơn vị: Pixel)
+   - Ý nghĩa: Khoảng cách từ tâm ảnh mà tại đó Gimbal sẽ đứng yên.
+   - Tác dụng: Giúp Gimbal không bị "co giật" liên tục khi Marker đã nằm gần tâm.
+   - Khuyên dùng: 15-20 pixel.
+
+4. "marker_size" (Đơn vị: Mét - QUAN TRỌNG NHẤT)
+   - Ý nghĩa: Kích thước thực tế cạnh của mã ArUco in trên giấy.
+   - Tác động: Nếu sai số này, toàn bộ tính toán độ cao (Distance Z) và tọa độ X, Y sẽ SAI HOÀN TOÀN.
+   - Ví dụ: In giấy A4 thường là 0.156 mét (15.6 cm).
+
+================================================================
+D. CHIẾN LƯỢC CẤU HÌNH GỢI Ý (PROFILE)
+================================================================
+
+PROFILE 1: BAY TÌM KIẾM (SEARCHING) - Cao độ > 10m
+- detect_scale: 0.5 (Ảnh nhỏ để quét nhanh)
+- skip_frame: 1 hoặc 2 (Tiết kiệm CPU)
+- deadzone: 30 (Không cần chính xác tuyệt đối)
+
+PROFILE 2: HẠ CÁNH CHÍNH XÁC (PRECISION LANDING) - Cao độ < 3m
+- detect_scale: 1.0 (Cần độ chi tiết cao nhất)
+- skip_frame: 0 (Cần cập nhật vị trí liên tục)
+- deadzone: 10 (Cần đưa về tâm chuẩn xác)
