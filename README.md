@@ -170,6 +170,7 @@ http://<IP_cua_PI>:8889/my_camera/
 **4.1. Đảm bảo hệ thống ở trạng thái tốt nhất trước khi cất cánh**
 Chạy benchmark pre-flight
 ```bash
+sudo apt install sysbench fio sysstat lm-sensors -y
 cd benchmark
 ./ultimate_audit.py
 ```
